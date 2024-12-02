@@ -41,5 +41,5 @@ public class Paddle extends GameObject{
         }
         setVelocity(movementDirection.mult(MOVEMENT_SPEED));
     }
-//    todo: make sure paddle dosent go out of board
+//    todo: make sure paddle dosent go out of board - what is board size
 }
