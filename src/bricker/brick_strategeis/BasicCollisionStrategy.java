@@ -15,4 +15,9 @@ public class BasicCollisionStrategy implements CollisionStrategy {
         System.out.println("collision with brick detected");
         gameManager.removeBrick(object1);
     }
+
+    @Override
+    public BrickerGameManager getGameManager() {
+        return this.gameManager;
+    }
 }

@@ -1,6 +1,6 @@
 package bricker.main;
 
-import bricker.brick_strategeis.BasicCollisionStrategy;
+import bricker.brick_strategeis.*;
 import bricker.gameobjects.Ball;
 import bricker.gameobjects.Brick;
 import bricker.gameobjects.Paddle;
@@ -20,24 +20,34 @@ public class BrickerGameManager extends GameManager {
     private static final int DEFAULT_ROWS = 7;
     private static final int DEFAULT_COLS = 8;
     private static final int BRICK_HEIGHT = 15;
+    private static final int MAIN_BALL_RADIUS = 20;
 
     private final int initialBrickRows;
     private final int initialBrickCols;
     private Vector2 windowDimensions;
     private WindowController windowController;
     private Ball ball;
-    private GameObject userPaddle;
+    private Paddle userPaddle;
     private danogl.util.Counter brickCount;
     private UserInputListener inputListener;
     private ImageReader imageReader;
     private SoundReader soundReader;
+    private Sound collisionSound;
+    Random rand;
+    Renderable paddleImage;
+    private boolean extraPaddleExists;
+    private Paddle extraPaddle;
+    private int maxExtraPaddleCollisions;
 
-//constructor
+    //constructor
     public BrickerGameManager(String windowTitle, Vector2 windowDimensions, int initialBrickRows, int initialBrickCols) {
         super(windowTitle, windowDimensions);
         this.initialBrickRows = initialBrickRows;
         this.initialBrickCols = initialBrickCols;
         brickCount = new Counter(initialBrickRows * initialBrickCols);
+        rand = new Random();
+        extraPaddleExists = false;
+        extraPaddle = null;
     }
 
     @Override
@@ -48,9 +58,14 @@ public class BrickerGameManager extends GameManager {
         this.inputListener = inputListener;
         this.imageReader = imageReader;
         this.soundReader = soundReader;
-//create initial objects
+
+        this.paddleImage = imageReader.readImage(
+                "assets/paddle.png", true);
+        this.collisionSound = soundReader.readSound("assets/blop.wav");
+        //create initial objects
+
         createMainBall();
-        createPedal();
+        createPaddle();
         createBoarders();
         createBackground();
         createBricks();
@@ -61,19 +76,27 @@ public class BrickerGameManager extends GameManager {
         super.update(deltaTime);
         checkWin();
         keepPaddleInBoard();
-
+//        todo: erase pucks
+        if (extraPaddleExists && extraPaddle.getCollisionCounter() == maxExtraPaddleCollisions){
+            removeExtraPedal();
+        }
     }
 
     private void keepPaddleInBoard(){
-        if (userPaddle.getTopLeftCorner().x() < 0){
-            Vector2 newCoords = new Vector2(0, userPaddle.getTopLeftCorner().y());
-            userPaddle.setTopLeftCorner(newCoords);
+        Paddle[] paddles = {userPaddle};
+        if (extraPaddleExists){
+            paddles = new Paddle[] {userPaddle, extraPaddle};
         }
-        else if (userPaddle.getTopLeftCorner().x() >
-                windowDimensions.x() - userPaddle.getDimensions().x()){
-            Vector2 newCoords = new Vector2(windowDimensions.x() - userPaddle.getDimensions().x(),
-                    userPaddle.getTopLeftCorner().y());
-            userPaddle.setTopLeftCorner(newCoords);
+        for (Paddle paddle : paddles) {
+            if (paddle.getTopLeftCorner().x() < 0) {
+                Vector2 newCoords = new Vector2(0, paddle.getTopLeftCorner().y());
+                paddle.setTopLeftCorner(newCoords);
+            } else if (paddle.getTopLeftCorner().x() >
+                    windowDimensions.x() - paddle.getDimensions().x()) {
+                Vector2 newCoords = new Vector2(windowDimensions.x() - paddle.getDimensions().x(),
+                        paddle.getTopLeftCorner().y());
+                paddle.setTopLeftCorner(newCoords);
+            }
         }
     }
 
@@ -102,11 +125,11 @@ public class BrickerGameManager extends GameManager {
     private void createMainBall(){
         Renderable ballImage = imageReader.readImage(
                 "assets/ball.png", true);
-        Sound collisionSound = soundReader.readSound("assets/blop.wav");
         ball = new Ball(new Vector2(0,0),
-                new Vector2(20, 20), ballImage, collisionSound);
+                new Vector2(MAIN_BALL_RADIUS, MAIN_BALL_RADIUS), ballImage, collisionSound);
         windowDimensions = windowController.getWindowDimensions();
         ball.setCenter(windowDimensions.mult(0.5F));
+        ball.setTag("Main Ball");
         this.setRandomBallDirection();
         this.gameObjects().addGameObject(ball, Layer.DEFAULT);
     }
@@ -114,7 +137,6 @@ public class BrickerGameManager extends GameManager {
     private void setRandomBallDirection(){
         float ballVelX = BALL_SPEED;
         float ballVelY= BALL_SPEED;
-        Random rand = new Random();
         if (rand.nextBoolean()){
             ballVelX *= -1;
         }
@@ -124,9 +146,7 @@ public class BrickerGameManager extends GameManager {
         ball.setVelocity(new Vector2(ballVelX, ballVelY));
     }
 
-    private void createPedal(){
-        Renderable paddleImage = imageReader.readImage(
-                "assets/paddle.png", true);
+    private void createPaddle(){
         this.userPaddle = new Paddle(new Vector2(0, 0),
                 new Vector2(100, 15), paddleImage, inputListener);
         userPaddle.setCenter(new Vector2(windowDimensions.x() / 2, windowDimensions.y()-30));
@@ -160,11 +180,11 @@ public class BrickerGameManager extends GameManager {
     private void createBricks(){
         Renderable brickImage = imageReader.readImage(
                 "assets/brick.png", false);
-        BasicCollisionStrategy strategy = new BasicCollisionStrategy(this);
+        BasicCollisionStrategy basicStrategy = new BasicCollisionStrategy(this);
         float brickWidth = (windowDimensions.x()/ initialBrickRows) - 5;
-
         for (int i = 0; i < initialBrickRows; i++){
             for (int j = 0; j < initialBrickCols; j++){
+                CollisionStrategy strategy = createStrategy(rand, basicStrategy, 0);
                 GameObject brick = new Brick(new Vector2(i*(brickWidth + 5), j*(BRICK_HEIGHT + 3)),
                         new Vector2(brickWidth, BRICK_HEIGHT), brickImage, strategy);
                 this.gameObjects().addGameObject(brick, Layer.STATIC_OBJECTS);
@@ -173,9 +193,47 @@ public class BrickerGameManager extends GameManager {
 
     }
 
+    private CollisionStrategy createStrategy(Random random, CollisionStrategy baseStrategy, int decoratorAmount){
+        int randomVal = random.nextInt(10);
+//        create strategy
+        CollisionStrategy strategy;
+        if (randomVal == 0){
+             strategy = new TurboCollisionDecorator(baseStrategy);
+             decoratorAmount++;
+        }
+//        todo: add more cases
+        else if (randomVal == 1){
+             strategy = new addPucksCollisionDecorator(baseStrategy);
+             decoratorAmount++;
+
+        }
+        else if (randomVal == 2){
+            strategy = new addPaddleCollisionDecorator(baseStrategy);
+            decoratorAmount++;
+        }
+        else if (randomVal == 3){
+            strategy = createStrategy(random, baseStrategy, decoratorAmount);
+            decoratorAmount++;
+            if (decoratorAmount < 3){
+                strategy = createStrategy(random, strategy, decoratorAmount);
+                decoratorAmount++;
+            }
+        }
+        else{
+            strategy = baseStrategy;
+        }
+        return strategy;
+    }
+
     public void removeBrick(GameObject brick){
         this.gameObjects().removeGameObject(brick, Layer.STATIC_OBJECTS);
         brickCount.decrement();
+    }
+
+    public void applyTurboMode(int Collisions, float turboFactor) {
+        Renderable turboBallImage = imageReader.readImage("assets/redball.png",
+                true);
+        ball.ApplyTurboMode(Collisions, turboFactor, turboBallImage);
     }
 
     public static void main(String[] args) {
@@ -191,5 +249,45 @@ public class BrickerGameManager extends GameManager {
         gameManager.run();
     }
 
+    public void addPucks(int puckAmount, float sizeFactor, Vector2 pucksLocation) {
 
+        Renderable puckImage = imageReader.readImage("assets/mockBall.png",
+                true);
+        float puckRadius = MAIN_BALL_RADIUS*sizeFactor;
+        Vector2 puckSize = new Vector2(puckRadius, puckRadius);
+        for (int i = 0; i < puckAmount; i++){
+            Ball puck = new Ball(Vector2.ZERO, puckSize, puckImage, collisionSound);
+            puck.setCenter(pucksLocation);
+            setPuckDirection(puck);
+            this.gameObjects().addGameObject(puck);
+//            todo: remove puck if is out of bounds- create puck class?- puck dosent know game boarders
+        }
+    }
+
+    private void setPuckDirection(Ball puck){
+        double angle = rand.nextDouble() * Math.PI;
+        float xVel = (float) Math.cos(angle) * BALL_SPEED;
+        float yVel = (float) Math.sin(angle) * BALL_SPEED;
+        puck.setVelocity(new Vector2(xVel, yVel));
+
+    }
+
+    public void addPaddle(int collisions) {
+        if (extraPaddleExists){
+            return;
+        }
+        this.extraPaddle = new Paddle(new Vector2(0, 0),
+                new Vector2(100, 15), paddleImage, inputListener);
+        extraPaddle.setCenter(new Vector2(windowDimensions.x() / 2, windowDimensions.y()/2));
+        this.gameObjects().addGameObject(extraPaddle, Layer.DEFAULT);
+        extraPaddleExists = true;
+        maxExtraPaddleCollisions = collisions;
+    }
+
+    private void removeExtraPedal(){
+        this.gameObjects().removeGameObject(extraPaddle);
+        extraPaddle = null;
+        extraPaddleExists = false;
+    }
 }
+//todo: count once each collision when two balls touch paddle

@@ -1,6 +1,7 @@
 package bricker.gameobjects;
 
 import danogl.GameObject;
+import danogl.collisions.Collision;
 import danogl.gui.UserInputListener;
 import danogl.gui.rendering.Renderable;
 import danogl.util.Vector2;
@@ -11,6 +12,7 @@ public class Paddle extends GameObject{
 
     private static final float MOVEMENT_SPEED = 300;
     private final UserInputListener inputListener;
+    private int collisionCounter;
 
     /**
      * Construct a new GameObject instance.
@@ -27,6 +29,7 @@ public class Paddle extends GameObject{
                   UserInputListener inputListener) {
         super(topLeftCorner, dimensions, renderable);
         this.inputListener = inputListener;
+        collisionCounter = 0;
     }
 
     @Override
@@ -40,5 +43,15 @@ public class Paddle extends GameObject{
             movementDirection = movementDirection.add(Vector2.RIGHT);
         }
         setVelocity(movementDirection.mult(MOVEMENT_SPEED));
+    }
+
+    @Override
+    public void onCollisionEnter(GameObject other, Collision collision) {
+        super.onCollisionEnter(other, collision);
+        collisionCounter ++;
+    }
+
+    public int getCollisionCounter() {
+        return collisionCounter;
     }
 }
